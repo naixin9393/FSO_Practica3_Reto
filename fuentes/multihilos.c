@@ -29,6 +29,7 @@ int buscar_asiento_ocupado() {
 			return i;
 		}
 	}
+    return i;
 }
 
 void* ejecutar_gratuito() {
@@ -94,7 +95,7 @@ void* mostrar_estado_sala() {
 	}
 }
 
-void main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) {
 	if (argc != 3) {
 		fprintf(stderr, "El número de argumentos no es válido. Debe ser 3: ./multihilos n m\n");
 		exit(-1);
@@ -136,12 +137,12 @@ void main(int argc, char* argv[]) {
 		}
 	}
 	// Solo queda crear uno de los dos tipos de hilos
-	for (hilos_gratuito_creados; hilos_gratuito_creados  < n_hilos_gratuito; hilos_gratuito_creados++) {
+	for (; hilos_gratuito_creados  < n_hilos_gratuito; hilos_gratuito_creados++) {
 		if (pthread_create(hilos_gratuito + hilos_gratuito_creados, NULL, ejecutar_gratuito, NULL) != 0) {
 			fprintf(stderr, "Error al crear hilo de reserva\n");
 		}
 	}
-	for (hilos_pago_creados; hilos_pago_creados < n_hilos_pago; hilos_pago_creados++) {
+	for (; hilos_pago_creados < n_hilos_pago; hilos_pago_creados++) {
 		if (pthread_create(hilos_pago + hilos_pago_creados, NULL, ejecutar_libera, NULL) != 0) {
 			fprintf(stderr, "Error al crear hilo de liberación\n");
 		}
