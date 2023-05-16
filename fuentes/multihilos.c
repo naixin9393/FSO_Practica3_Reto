@@ -1,6 +1,5 @@
 // Práctica 3: hilos.
 // Hito 3
-// PRUEBA
 
 #include <stdio.h>	// printf
 #include <stdlib.h>	// exit
