@@ -1,5 +1,5 @@
 // Práctica 3: hilos.
-// Hito 3
+// Reto 2. Hilos gratuitos y de pago.
 
 #include <stdio.h>	// printf
 #include <stdlib.h>	// exit
@@ -13,46 +13,87 @@ int n_hilos_pago;	// número de hilos de reservas de pago
 int hilos_gratuito_terminados = 0;
 int hilos_pago_terminados = 0;
 
+int* asiento_gratuito;
+int* asiento_pago;
+
 int cancelar_hilos_reserva = 0;
 int cancelar_hilos_libera = 0;
 
+int reservas_gratuitas_actuales = 0;
 pthread_mutex_t cerrojo_hilo_reserva_terminado;
 pthread_mutex_t cerrojo_hilo_libera_terminado;
 
 pthread_cond_t cambio_en_sala;
 pthread_mutex_t cerrojo_sala;
 
-int buscar_asiento_ocupado() {
-	int i;
-	for (i = 0; i < capacidad(); i++) {
-		if (estado_asiento(i) != 0) {
-			return i;
+pthread_mutex_t cerrojo_gratuito;
+
+int NUM_ASIENTOS_GRATUITOS_MAX;
+
+void add_asiento_gratuito(int asiento) {
+	for (int i = 0; i < NUM_ASIENTOS_GRATUITOS_MAX; i++) {
+		if (asiento_gratuito[i] == 0) {
+			asiento_gratuito[i] = asiento;
+			return;
+		}
+	}
+}
+
+void reserva_pago() {
+	pthread_mutex_lock(&cerrojo_sala);
+	while (asientos_libres() == 0) {
+		pthread_cond_wait(&cambio_en_sala, &cerrojo_sala);
+	}
+	int asiento;
+	do { // si el id generado pertenece a una persona ya sentada, se intenta reservar asiento con otro id.
+		asiento = reserva_asiento(rand() % (capacidad() * 1000));
+	} while (asiento == -1);
+	pthread_mutex_unlock(&cerrojo_sala);
+}
+
+void reserva_gratuita() {
+	pthread_mutex_lock(&cerrojo_sala);
+	while (reservas_gratuitas_actuales + 1 > NUM_ASIENTOS_GRATUITOS_MAX) {
+		pthread_cond_wait(&cambio_en_sala, &cerrojo_sala);	
+	}
+	int asiento;
+	do { // si el id generado pertenece a una persona ya sentada, se intenta reservar asiento con otro id.
+		asiento = reserva_asiento(rand() % (capacidad() * 1000));
+	} while (asiento == -1);
+	add_asiento_gratuito(asiento);
+	reservas_gratuitas_actuales++;
+	pthread_mutex_unlock(&cerrojo_sala);
+}
+
+void libera_gratuita() {
+	int asiento;
+	pthread_mutex_lock(&cerrojo_sala);
+	for (int i = 0; i < NUM_ASIENTOS_GRATUITOS_MAX; i++) {
+		if (asiento_gratuito[i] != 0) {
+			libera_asiento(asiento_gratuito[i]);
+			pthread_mutex_unlock(&cerrojo_sala);
+			pthread_exit(NULL);
 		}
 	}
 }
 
 void* ejecutar_gratuito() {
-	for (int i = 0; i < 3; i++) {
-		pthread_mutex_lock(&cerrojo_sala);
-		while (asientos_libres() == 0) {
-			pthread_cond_wait(&cambio_en_sala, &cerrojo_sala);
-			if (cancelar_hilos_reserva) {
-				fprintf(stdout, "Hilo de reserva %ld no ha podido terminar de reservar.\n", pthread_self());
-				pthread_mutex_unlock(&cerrojo_sala);
-				pthread_exit(NULL);
-			}	
-		}
-		int asiento;
-		do {
-			asiento = reserva_asiento(rand() % (capacidad() * 1000));
-		} while (asiento == -1);
-		pthread_mutex_unlock(&cerrojo_sala);
-		pthread_cond_broadcast(&cambio_en_sala);
-		pausa_aleatoria(2.f);
+	if (rand() % 2) {
+		libera_gratuita();
+	} else {
+		reserva_gratuita();
 	}
-	pthread_mutex_lock(&cerrojo_hilo_reserva_terminado);
-	hilos_gratuito_terminados++;
-	pthread_mutex_unlock(&cerrojo_hilo_reserva_terminado);
+	/*
+	pthread_mutex_lock(&cerrojo_sala);
+	while (asientos_libres() == 0) {
+		pthread_cond_wait(&cambio_en_sala, &cerrojo_sala);
+		if (cancelar_hilos_reserva) {
+			fprintf(stdout, "Hilo de reserva %ld no ha podido terminar de reservar.\n", pthread_self());
+			pthread_mutex_unlock(&cerrojo_sala);
+			pthread_exit(NULL);
+		}	
+	}
+	*/
 }
 
 void* ejecutar_libera() {
@@ -110,15 +151,19 @@ void main(int argc, char* argv[]) {
 		fprintf(stderr, "El número de hilos de reservas de pago debe ser mayor a 0\n");
 		exit(-1);
 	}
+	crea_sala((n_hilos_gratuito + n_hilos_pago) * 2);
+	NUM_ASIENTOS_GRATUITOS_MAX = (int) (0.1 * capacidad());
+	asiento_gratuito = malloc(sizeof(int) * NUM_ASIENTOS_GRATUITOS_MAX);
+	asiento_pago = malloc(sizeof(int) * capacidad());
 	srand(getpid()); // Cambiar la semilla para cada ejecución del programa
 	pthread_cond_init(&cambio_en_sala, NULL);
+	pthread_mutex_init(&cerrojo_gratuito, NULL);
 	pthread_mutex_init(&cerrojo_sala, NULL);
 	pthread_mutex_init(&cerrojo_hilo_reserva_terminado, NULL);
 	pthread_mutex_init(&cerrojo_hilo_libera_terminado, NULL);
 
 	pthread_t hilos_gratuito[n_hilos_gratuito];
 	pthread_t hilos_pago[n_hilos_pago];
-	crea_sala((n_hilos_gratuito + n_hilos_pago) * 2);
 	int hilos_gratuito_creados = 0;
 	int hilos_pago_creados = 0;
 	while (hilos_gratuito_creados < n_hilos_gratuito && hilos_pago_creados < n_hilos_pago) {
@@ -166,6 +211,8 @@ void main(int argc, char* argv[]) {
 	puts("\n\nEstado final sala:");
 	estado_sala();
 	elimina_sala();
+	free(asiento_gratuito);
+	free(asiento_pago);
 	puts("\nTerminado.");
 	exit(0);
 }

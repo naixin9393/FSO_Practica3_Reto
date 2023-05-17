@@ -1,4 +1,5 @@
-//funciones sala
+// Funciones sala
+// Igual que el hito2
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
