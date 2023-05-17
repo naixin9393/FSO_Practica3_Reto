@@ -39,6 +39,15 @@ void add_asiento_gratuito(int asiento) {
 	}
 }
 
+void add_asiento_pago(int asiento) {
+	for (int i = 0; i < capacidad(); i++) {
+		if (asiento_pago[i] == 0) {
+			asiento_pago[i] = asiento;
+			return;
+		}
+	}
+}
+
 void reserva_pago() {
 	pthread_mutex_lock(&cerrojo_sala);
 	while (asientos_libres() == 0) {
@@ -96,6 +105,14 @@ void* ejecutar_gratuito() {
 	*/
 }
 
+void* ejecutar_pago() {
+	if (rand() % 2) {
+		libera_pago();
+	} else {
+		reserva_pago();
+	}
+}
+
 void* ejecutar_libera() {
 	for (int i = 0; i < 3; i++) {
 		pthread_mutex_lock(&cerrojo_sala);
@@ -135,7 +152,7 @@ void* mostrar_estado_sala() {
 	}
 }
 
-void main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) {
 	if (argc != 3) {
 		fprintf(stderr, "El número de argumentos no es válido. Debe ser 3: ./multihilos n m\n");
 		exit(-1);
@@ -214,5 +231,5 @@ void main(int argc, char* argv[]) {
 	free(asiento_gratuito);
 	free(asiento_pago);
 	puts("\nTerminado.");
-	exit(0);
+	return(0);
 }
