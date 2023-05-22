@@ -7,61 +7,80 @@
 #include "../cabeceras/retardo.h"
 #include <pthread.h>
 #include <unistd.h>
-int n_hilos_gratuito_totales; // número de hilos de reservas gratuitas
-int n_hilos_pago_totales;	// número de hilos de reservas de pago
 
-int n_hilos_reserva_gratuito_creados;
-int n_hilos_libera_gratuito_creados;
-int n_hilos_reserva_gratuito_terminados;
-int n_hilos_libera_gratuito_terminados;
+int NUM_HILOS_GRATUITO_TOTAL; // número de hilos gratuitos total
+int NUM_HILOS_PAGO_TOTAL;	// número de hilos de pago total
 
-int n_hilos_reserva_pago_creados;
-int n_hilos_libera_pago_creados;
-int n_hilos_reserva_pago_terminados;
-int n_hilos_libera_pago_terminados;
+// Contadores de hilos gratuitos creados
+int num_hilos_reserva_gratuito_creados;
+int num_hilos_libera_gratuito_creados;
 
+// Contadores de hilos de gratuitos terminados
+int num_hilos_reserva_gratuito_terminados;
+int num_hilos_libera_gratuito_terminados;
+
+// Contadores de hilos de pago creados
+int num_hilos_reserva_pago_creados;
+int num_hilos_libera_pago_creados;
+
+// Contadores de hilos de pago terminados
+int num_hilos_reserva_pago_terminados;
+int num_hilos_libera_pago_terminados;
+
+// Contadores de reservas gratuitas actuales
+int reservas_gratuitas_actuales = 0;
+int reservas_pago_actuales = 0;
+
+// Pilas para diferenciar si un id pertenece a una entrada gratuita o de pago
 int* asiento_gratuito;
 int* asiento_pago;
 
+// Índices que indica la última posición ocupada de la pila
+int indice_asiento_gratuito = 0;
+int indice_asiento_pago = 0;
+
+// Flag para indicar la cancelación de hilos
 int cancelar_hilos_reserva_gratuito = 0;
 int cancelar_hilos_reserva_pago = 0;
 int cancelar_hilos_libera_gratuito = 0;
 int cancelar_hilos_libera_pago = 0;
 
-int reservas_gratuitas_actuales = 0;
-int reservas_pago_actuales = 0;
+// Cerrojos para acceder al contador de hilos de distintos tipos
+pthread_mutex_t c_num_hilos_reserva_gratuito;
+pthread_mutex_t c_num_hilos_libera_gratuito;
+pthread_mutex_t c_num_hilos_reserva_pago;
+pthread_mutex_t c_num_hilos_libera_pago;
 
-//pthread_mutex_t cerrojo_hilo_reserva_terminado;
-//pthread_mutex_t cerrojo_hilo_libera_terminado;
+// Cerrojo para acceder al contador de reservas gratuitas actuales
+pthread_mutex_t c_reservas_gratuitas_actuales;
 
-pthread_mutex_t cerrojo_hilos_reserva_gratuito;
-pthread_mutex_t cerrojo_hilos_libera_gratuito;
-pthread_mutex_t cerrojo_hilos_reserva_pago;
-pthread_mutex_t cerrojo_hilos_libera_pago;
+// Variables condicion que indica cambios en la sala
+pthread_cond_t se_ha_reservado_asiento;
+pthread_cond_t se_ha_liberado_asiento;
 
-pthread_mutex_t cerrojo_reservas_gratuitas_actuales;
+// Cerrojo para modificar datos de la sala
+pthread_mutex_t c_sala;
 
-pthread_cond_t cambio_en_sala;
-pthread_mutex_t cerrojo_sala;
-
-
-int NUM_ASIENTOS_GRATUITOS_MAX;
+int NUM_PLAZAS_GRATUITAS;
 
 void inicializar_pthread() {
-	pthread_cond_init(&cambio_en_sala, NULL);
-	pthread_mutex_init(&cerrojo_sala, NULL);
-	//pthread_mutex_init(&cerrojo_hilo_reserva_terminado, NULL);
-	//pthread_mutex_init(&cerrojo_hilo_libera_terminado, NULL);
-	pthread_mutex_init(&cerrojo_reservas_gratuitas_actuales, NULL);
+	//pthread_mutex_init(&c_hilo_reserva_terminado, NULL);
+	//pthread_mutex_init(&c_hilo_libera_terminado, NULL);
+	pthread_mutex_init(&c_num_hilos_reserva_gratuito, NULL);
+	pthread_mutex_init(&c_num_hilos_libera_gratuito, NULL);
+	pthread_mutex_init(&c_num_hilos_reserva_pago, NULL);
+	pthread_mutex_init(&c_num_hilos_libera_pago, NULL);
 
-	pthread_mutex_init(&cerrojo_hilos_reserva_gratuito, NULL);
-	pthread_mutex_init(&cerrojo_hilos_libera_gratuito, NULL);
-	pthread_mutex_init(&cerrojo_hilos_reserva_pago, NULL);
-	pthread_mutex_init(&cerrojo_hilos_libera_pago, NULL);
+	pthread_mutex_init(&c_reservas_gratuitas_actuales, NULL);
+
+	pthread_cond_init(&se_ha_reservado_asiento, NULL);
+	pthread_cond_init(&se_ha_liberado_asiento, NULL);
+
+	pthread_mutex_init(&c_sala, NULL);
 }
 
 void add_asiento_gratuito(int asiento) {
-	for (int i = 0; i < NUM_ASIENTOS_GRATUITOS_MAX; i++) {
+	for (int i = 0; i < NUM_PLAZAS_GRATUITAS; i++) {
 		if (asiento_gratuito[i] == 0) {
 			asiento_gratuito[i] = asiento;
 			return;
@@ -79,11 +98,11 @@ void add_asiento_pago(int asiento) {
 }
 
 void reserva_gratuita() {
-	pthread_mutex_lock(&cerrojo_sala);
-	while (reservas_gratuitas_actuales + 1 > NUM_ASIENTOS_GRATUITOS_MAX) {
-		pthread_cond_wait(&cambio_en_sala, &cerrojo_sala);
+	pthread_mutex_lock(&c_sala);
+	while (reservas_gratuitas_actuales + 1 > NUM_PLAZAS_GRATUITAS) {
+		pthread_cond_wait(&se_ha_reservado_asiento, &c_sala);
 		if (cancelar_hilos_reserva_gratuito) {
-			pthread_mutex_unlock(&cerrojo_sala);
+			pthread_mutex_unlock(&c_sala);
 			fprintf(stdout, "El hilo de reservas gratuitas: %ld no ha podido reservar", pthread_self());
 		}
 	}
@@ -93,14 +112,14 @@ void reserva_gratuita() {
 	} while (asiento == -1);
 	add_asiento_gratuito(asiento);
 	reservas_gratuitas_actuales++;
-	pthread_mutex_unlock(&cerrojo_sala);
-	pthread_cond_broadcast(&cambio_en_sala);
+	pthread_cond_broadcast(&se_ha_reservado_asiento);
+	pthread_mutex_unlock(&c_sala);
 }
 
 void reserva_pago() {
-	pthread_mutex_lock(&cerrojo_sala);
+	pthread_mutex_lock(&c_sala);
 	while (asientos_libres() == 0) {
-		pthread_cond_wait(&cambio_en_sala, &cerrojo_sala);
+		pthread_cond_wait(&se_ha_reservado_asiento, &c_sala);
 	}
 	int asiento;
 	do { // si el id generado pertenece a una persona ya sentada, se intenta reservar asiento con otro id.
@@ -108,91 +127,94 @@ void reserva_pago() {
 	} while (asiento == -1);
 	add_asiento_pago(asiento);
 	reservas_pago_actuales++;
-	pthread_mutex_unlock(&cerrojo_sala);
-	pthread_cond_broadcast(&cambio_en_sala);
+	pthread_cond_broadcast(&se_ha_reservado_asiento);
+	pthread_mutex_unlock(&c_sala);
 }
 
 
 void libera_gratuita() {
-	pthread_mutex_lock(&cerrojo_sala);
-	for (int i = 0; i < NUM_ASIENTOS_GRATUITOS_MAX; i++) {
+
+	/*
+	pthread_mutex_lock(&c_sala);
+	for (int i = 0; i < NUM_PLAZAS_GRATUITAS; i++) {
 		if (asiento_gratuito[i] != 0) {
 			libera_asiento(asiento_gratuito[i]);
 			asiento_gratuito[i] = 0;
 			reservas_gratuitas_actuales--;
-			pthread_mutex_unlock(&cerrojo_sala);
-			pthread_cond_broadcast(&cambio_en_sala);
+			pthread_cond_broadcast(&se_ha_reservado_asiento);
+			pthread_mutex_unlock(&c_sala);
 			pthread_exit(NULL);
 		}
 	}
-	pthread_mutex_unlock(&cerrojo_sala);
-	pthread_cond_broadcast(&cambio_en_sala);
+	pthread_cond_broadcast(&se_ha_reservado_asiento);
+	pthread_mutex_unlock(&c_sala);
+	*/
 }
 
 void libera_pago() {
-	pthread_mutex_lock(&cerrojo_sala);
+	pthread_mutex_lock(&c_sala);
 	while (reservas_pago_actuales == 0) {
-		pthread_cond_wait(&cambio_en_sala, &cerrojo_sala);
+		pthread_cond_wait(&se_ha_reservado_asiento, &c_sala);
 	}
 	for (int i = 0; i < capacidad(); i++) {
 		if (asiento_pago[i] != 0) {
 			libera_asiento(asiento_pago[i]);
 			asiento_pago[i] = 0;
 			reservas_pago_actuales--;
-			pthread_mutex_unlock(&cerrojo_sala);
-			pthread_cond_broadcast(&cambio_en_sala);
-			pthread_exit(NULL);
+			pthread_mutex_unlock(&c_sala);
+			pthread_cond_broadcast(&se_ha_reservado_asiento);
+			return;
 		}
 	}
-	pthread_mutex_unlock(&cerrojo_sala);
-	pthread_cond_broadcast(&cambio_en_sala);
+	pthread_mutex_unlock(&c_sala);
+	pthread_cond_broadcast(&se_ha_reservado_asiento);
 }
 
-void* ejecutar_gratuito() {
+void* rutina_gratuito() {
 	if (rand() % 2) {
-		pthread_mutex_lock(&cerrojo_hilos_libera_gratuito);
-		n_hilos_libera_gratuito_creados++;
-		pthread_mutex_unlock(&cerrojo_hilos_libera_gratuito);
+		pthread_mutex_lock(&c_num_hilos_libera_gratuito);
+		num_hilos_libera_gratuito_creados++;
+		pthread_mutex_unlock(&c_num_hilos_libera_gratuito);
 		libera_gratuita();
 	} else {
-		pthread_mutex_lock(&cerrojo_hilos_reserva_gratuito);
-		n_hilos_reserva_gratuito_creados++;
-		pthread_mutex_unlock(&cerrojo_hilos_reserva_gratuito);
+		pthread_mutex_lock(&c_num_hilos_reserva_gratuito);
+		num_hilos_reserva_gratuito_creados++;
+		pthread_mutex_unlock(&c_num_hilos_reserva_gratuito);
 		reserva_gratuita();
 	}
 	return NULL;
 }
 
-void* ejecutar_pago() {
+void* rutina_pago() {
 	if (rand() % 2) {
-		pthread_mutex_lock(&cerrojo_hilos_libera_pago);
-		n_hilos_libera_pago_creados++;
-		pthread_mutex_unlock(&cerrojo_hilos_libera_pago);
+		pthread_mutex_lock(&c_num_hilos_libera_pago);
+		num_hilos_libera_pago_creados++;
+		pthread_mutex_unlock(&c_num_hilos_libera_pago);
 		libera_pago();
 	} else {
-		pthread_mutex_lock(&cerrojo_hilos_reserva_pago);
-		n_hilos_libera_pago_creados++;
-		pthread_mutex_unlock(&cerrojo_hilos_reserva_pago);
+		pthread_mutex_lock(&c_num_hilos_reserva_pago);
+		num_hilos_reserva_pago_creados++;
+		pthread_mutex_unlock(&c_num_hilos_reserva_pago);
 		reserva_pago();
 	}
-	return NULL;
+	pthread_exit(NULL);
 }
 
 void* mostrar_estado_sala() {
 	while (1) {
-		pthread_mutex_lock(&cerrojo_sala);
+		pthread_mutex_lock(&c_sala);
 		estado_sala();
 		printf("Reservas de entradas gratuitas actuales: %d\n", reservas_gratuitas_actuales);
 		printf("Reservas de entradas de pago actuales: %d\n", reservas_pago_actuales);
-		pthread_mutex_unlock(&cerrojo_sala);
-		if ((n_hilos_reserva_gratuito_terminados == n_hilos_reserva_gratuito_creados) && (reservas_gratuitas_actuales == 0)) {
+		pthread_mutex_unlock(&c_sala);
+		if ((num_hilos_reserva_gratuito_terminados == num_hilos_reserva_gratuito_creados) && (reservas_gratuitas_actuales == 0)) {
 			cancelar_hilos_libera_gratuito = 1;
-			pthread_cond_broadcast(&cambio_en_sala);
+			pthread_cond_broadcast(&se_ha_reservado_asiento);
 			break;
 		}
-		if ((n_hilos_reserva_pago_terminados == n_hilos_reserva_pago_creados) && (asientos_libres() == 0)) {
+		if ((num_hilos_reserva_pago_terminados == num_hilos_reserva_pago_creados) && (asientos_libres() == 0)) {
 			cancelar_hilos_reserva_pago = 1;
-			pthread_cond_broadcast(&cambio_en_sala);
+			pthread_cond_broadcast(&se_ha_reservado_asiento);
 			break;
 		}
 		sleep(1);
@@ -205,58 +227,60 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "El número de argumentos no es válido. Debe ser 3: ./multihilos n m\n");
 		exit(-1);
 	}
-	n_hilos_gratuito_totales = atoi(argv[1]);
-	n_hilos_pago_totales = atoi(argv[2]);
-	if (n_hilos_gratuito_totales < 1) {
+	NUM_HILOS_GRATUITO_TOTAL = atoi(argv[1]);
+	NUM_HILOS_PAGO_TOTAL = atoi(argv[2]);
+	if (NUM_HILOS_GRATUITO_TOTAL < 1) {
 		fprintf(stderr, "El número de hilos de reservas gratuitas debe ser mayor a 0\n");
 		exit(-1);
 	}
-	if (n_hilos_pago_totales < 1) {
+	if (NUM_HILOS_PAGO_TOTAL < 1) {
 		fprintf(stderr, "El número de hilos de reservas de pago debe ser mayor a 0\n");
 		exit(-1);
 	}
-	crea_sala((n_hilos_gratuito_totales + n_hilos_pago_totales) * 2);
-	NUM_ASIENTOS_GRATUITOS_MAX = (int) (0.1 * capacidad());
-	asiento_gratuito = malloc(sizeof(int) * NUM_ASIENTOS_GRATUITOS_MAX);
+	crea_sala((NUM_HILOS_GRATUITO_TOTAL + NUM_HILOS_PAGO_TOTAL) * 2);
+	NUM_PLAZAS_GRATUITAS = (int) (0.1 * capacidad()); // 10% de las plazas totales son usadas por entradas gratuitas
+
+	asiento_gratuito = malloc(sizeof(int) * NUM_PLAZAS_GRATUITAS);
 	asiento_pago = malloc(sizeof(int) * capacidad());
+
 	srand(getpid()); // Cambiar la semilla para cada ejecución del programa
+	inicializar_pthread(); // Inicializar cerrojos y variables condición
 
-	inicializar_pthread();
+	pthread_t hilos_gratuito[NUM_HILOS_GRATUITO_TOTAL];
+	pthread_t hilos_pago[NUM_HILOS_PAGO_TOTAL];
 
-	pthread_t hilos_gratuito[n_hilos_gratuito_totales];
-	pthread_t hilos_pago[n_hilos_pago_totales];
+	num_hilos_reserva_gratuito_creados = 0;
+	num_hilos_libera_gratuito_creados = 0;
 
-	n_hilos_reserva_gratuito_creados = 0;
-	n_hilos_libera_gratuito_creados = 0;
+	num_hilos_reserva_pago_creados = 0;
+	num_hilos_libera_pago_creados = 0;
 
-	n_hilos_reserva_pago_creados = 0;
-	n_hilos_libera_pago_creados = 0;
+	int num_hilos_gratuito_creados = 0;
+	int num_hilos_pago_creados = 0;
 
-	int n_hilos_gratuito_creados = 0;
-	int n_hilos_pago_creados = 0;
-	while (n_hilos_reserva_gratuito_creados + n_hilos_libera_gratuito_creados < n_hilos_gratuito_totales
-			&& n_hilos_reserva_pago_creados + n_hilos_libera_pago_creados < n_hilos_pago_totales) {
+	while (num_hilos_gratuito_creados < NUM_HILOS_GRATUITO_TOTAL
+			&& num_hilos_pago_creados < NUM_HILOS_PAGO_TOTAL) {
 		// Crear hilos de reservas gratuitas y de pago de forma aleatoria
 		if (rand() % 2) {
-			if (pthread_create(hilos_gratuito + n_hilos_gratuito_creados, NULL, ejecutar_gratuito, NULL) != 0) {
+			if (pthread_create(hilos_gratuito + num_hilos_gratuito_creados, NULL, rutina_gratuito, NULL) != 0) {
 				fprintf(stderr, "Error al crear hilo de reserva\n");
 			}
-			n_hilos_gratuito_creados++;
+			num_hilos_gratuito_creados++;
 		} else {
-			if (pthread_create(hilos_pago + n_hilos_pago_creados, NULL, ejecutar_pago, NULL) != 0) {
+			if (pthread_create(hilos_pago + num_hilos_pago_creados, NULL, rutina_pago, NULL) != 0) {
 				fprintf(stderr, "Error al crear hilo de liberación\n");
 			}
-			n_hilos_pago_creados++;
+			num_hilos_pago_creados++;
 		}
 	}
 	// Solo queda crear uno de los dos tipos de hilos
-	for (; n_hilos_gratuito_creados  < n_hilos_gratuito_totales; n_hilos_gratuito_creados++) {
-		if (pthread_create(hilos_gratuito + n_hilos_gratuito_creados, NULL, ejecutar_gratuito, NULL) != 0) {
+	for (; num_hilos_gratuito_creados  < NUM_HILOS_GRATUITO_TOTAL; num_hilos_gratuito_creados++) {
+		if (pthread_create(hilos_gratuito + num_hilos_gratuito_creados, NULL, rutina_gratuito, NULL) != 0) {
 			fprintf(stderr, "Error al crear hilo de reserva\n");
 		}
 	}
-	for (; n_hilos_pago_creados < n_hilos_pago_totales; n_hilos_pago_creados++) {
-		if (pthread_create(hilos_pago + n_hilos_pago_creados, NULL, ejecutar_gratuito, NULL) != 0) {
+	for (; num_hilos_pago_creados < NUM_HILOS_PAGO_TOTAL; num_hilos_pago_creados++) {
+		if (pthread_create(hilos_pago + num_hilos_pago_creados, NULL, rutina_gratuito, NULL) != 0) {
 			fprintf(stderr, "Error al crear hilo de liberación\n");
 		}
 	}
@@ -266,13 +290,13 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "Error al crear hilo estado\n");
 	}
 
-	for (int i = 0; i < n_hilos_gratuito_totales; i++) {
+	for (int i = 0; i < NUM_HILOS_GRATUITO_TOTAL; i++) {
 		if (pthread_join(hilos_gratuito[i], NULL) != 0) {
 			fprintf(stderr, "Error al terminar hilo de reserva\n");
 		}
 	}
 
-	for (int i = 0; i < n_hilos_pago_totales; i++) {
+	for (int i = 0; i < NUM_HILOS_PAGO_TOTAL; i++) {
 		if (pthread_join(hilos_pago[i], NULL) != 0) {
 			fprintf(stderr, "Error al terminar hilo de liberación\n");
 		}
