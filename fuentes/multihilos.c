@@ -100,7 +100,7 @@ void add_asiento_pago(int asiento) {
 void reserva_gratuita() {
 	pthread_mutex_lock(&c_sala);
 	while (reservas_gratuitas_actuales + 1 > NUM_PLAZAS_GRATUITAS) {
-		pthread_cond_wait(&se_ha_reservado_asiento, &c_sala);
+		pthread_cond_wait(&se_ha_liberado_asiento, &c_sala);
 		if (cancelar_hilos_reserva_gratuito) {
 			pthread_mutex_unlock(&c_sala);
 			fprintf(stdout, "El hilo de reservas gratuitas: %ld no ha podido reservar", pthread_self());
@@ -110,8 +110,9 @@ void reserva_gratuita() {
 	do { // si el id generado pertenece a una persona ya sentada, se intenta reservar asiento con otro id.
 		asiento = reserva_asiento(rand() % (capacidad() * 1000));
 	} while (asiento == -1);
-	add_asiento_gratuito(asiento);
-	reservas_gratuitas_actuales++;
+	asiento_gratuito[indice_asiento_gratuito] = asiento;
+	indice_asiento_gratuito++;
+	//reservas_gratuitas_actuales++;
 	pthread_cond_broadcast(&se_ha_reservado_asiento);
 	pthread_mutex_unlock(&c_sala);
 }
@@ -119,36 +120,36 @@ void reserva_gratuita() {
 void reserva_pago() {
 	pthread_mutex_lock(&c_sala);
 	while (asientos_libres() == 0) {
-		pthread_cond_wait(&se_ha_reservado_asiento, &c_sala);
+		pthread_cond_wait(&se_ha_liberado_asiento, &c_sala);
+		if (cancelar_hilos_reserva_pago) {
+			pthread_mutex_unlock(&c_sala);
+			fprintf(stdout, "El hilo de reservas de pago: %ld no ha podido reservar", pthread_self());
+		}
 	}
 	int asiento;
 	do { // si el id generado pertenece a una persona ya sentada, se intenta reservar asiento con otro id.
 		asiento = reserva_asiento(rand() % (capacidad() * 1000));
 	} while (asiento == -1);
-	add_asiento_pago(asiento);
-	reservas_pago_actuales++;
+	//add_asiento_pago(asiento);
+	asiento_pago[indice_asiento_pago] = asiento;
+	indice_asiento_pago++;
+	//reservas_pago_actuales++;
 	pthread_cond_broadcast(&se_ha_reservado_asiento);
 	pthread_mutex_unlock(&c_sala);
 }
 
 
 void libera_gratuita() {
-
-	/*
 	pthread_mutex_lock(&c_sala);
-	for (int i = 0; i < NUM_PLAZAS_GRATUITAS; i++) {
-		if (asiento_gratuito[i] != 0) {
-			libera_asiento(asiento_gratuito[i]);
-			asiento_gratuito[i] = 0;
-			reservas_gratuitas_actuales--;
-			pthread_cond_broadcast(&se_ha_reservado_asiento);
-			pthread_mutex_unlock(&c_sala);
-			pthread_exit(NULL);
-		}
+	if (indice_asiento_gratuito == 0) {
+		pthread_exit(NULL);
 	}
-	pthread_cond_broadcast(&se_ha_reservado_asiento);
+	int asiento = asiento_gratuito[indice_asiento_gratuito - 1];
+	asiento_gratuito[indice_asiento_gratuito - 1] = 0;
+	indice_asiento_gratuito--;
+	libera_asiento(asiento);
+	pthread_cond_broadcast(&se_ha_liberado_asiento);
 	pthread_mutex_unlock(&c_sala);
-	*/
 }
 
 void libera_pago() {
@@ -156,16 +157,10 @@ void libera_pago() {
 	while (reservas_pago_actuales == 0) {
 		pthread_cond_wait(&se_ha_reservado_asiento, &c_sala);
 	}
-	for (int i = 0; i < capacidad(); i++) {
-		if (asiento_pago[i] != 0) {
-			libera_asiento(asiento_pago[i]);
-			asiento_pago[i] = 0;
-			reservas_pago_actuales--;
-			pthread_mutex_unlock(&c_sala);
-			pthread_cond_broadcast(&se_ha_reservado_asiento);
-			return;
-		}
-	}
+	int asiento = asiento_pago[indice_asiento_pago - 1];
+	libera_asiento(asiento);
+	asiento_pago[indice_asiento_pago - 1] = 0;
+	indice_asiento_pago--;
 	pthread_mutex_unlock(&c_sala);
 	pthread_cond_broadcast(&se_ha_reservado_asiento);
 }
@@ -204,8 +199,8 @@ void* mostrar_estado_sala() {
 	while (1) {
 		pthread_mutex_lock(&c_sala);
 		estado_sala();
-		printf("Reservas de entradas gratuitas actuales: %d\n", reservas_gratuitas_actuales);
-		printf("Reservas de entradas de pago actuales: %d\n", reservas_pago_actuales);
+		printf("Reservas de entradas gratuitas actuales: %d\n", indice_asiento_gratuito);
+		printf("Reservas de entradas de pago actuales: %d\n", indice_asiento_pago);
 		pthread_mutex_unlock(&c_sala);
 		if ((num_hilos_reserva_gratuito_terminados == num_hilos_reserva_gratuito_creados) && (reservas_gratuitas_actuales == 0)) {
 			cancelar_hilos_libera_gratuito = 1;
