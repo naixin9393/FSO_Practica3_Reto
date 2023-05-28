@@ -10,6 +10,6 @@ cd ..
 ar crs libsala.a sala/sala.o
 ar crs libretardo.a retardo/retardo.o
 cd ../fuentes
-gcc multihilos.c -o multihilos -lsala -lretardo -L../lib
+gcc -pthread multihilos.c -o multihilos -lsala -lretardo -L../lib
 
 echo "Compilado"
